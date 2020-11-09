@@ -37,7 +37,7 @@ use crate::{
         local_infile::LocalInfile,
         pool::{Pool, PooledConn},
         query_result::{Binary, Or, Text},
-        replication::BinLogEventIterator,
+        replication::BinlogEventIterator,
         stmt::{InnerStmt, Statement},
         stmt_cache::StmtCache,
         transaction::{AccessMode, TxOpts},
@@ -906,16 +906,16 @@ impl Conn {
     }
 
     pub fn get_binlog_stream(
-        mut self,
+        &mut self,
         file_name: Option<&str>,
         position: u32,
         non_blocking: bool,
         server_id: u32,
-    ) -> Result<BinLogEventIterator> {
+    ) -> Result<BinlogEventIterator> {
         let packet = BinlogDumpPacket::new(file_name, position, non_blocking, server_id);
         self.write_command(Command::COM_BINLOG_DUMP, packet.as_ref())?;
         self.drop_packet()?;
-        Ok(BinLogEventIterator::new(self))
+        Ok(BinlogEventIterator::new(self))
     }
 
     fn _true_prepare(&mut self, query: &str) -> Result<InnerStmt> {
