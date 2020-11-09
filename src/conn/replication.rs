@@ -16,7 +16,10 @@ impl<'a> Iterator for BinlogEventIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.conn.read_packet() {
             Ok(data) => Some(data),
-            Err(_err) => None,
+            Err(err) => {
+                println!("{:?}", err);
+                None
+            }
         }
     }
 }
