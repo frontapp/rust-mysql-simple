@@ -12,7 +12,7 @@ use mysql_common::{
     named_params::parse_named_params,
     packets::{
         column_from_payload, parse_auth_switch_request, parse_err_packet, parse_handshake_packet,
-        parse_ok_packet, AuthPlugin, AuthSwitchRequest, Column, ComStmtClose,
+        parse_ok_packet, AuthPlugin, AuthSwitchRequest, BinlogDumpPacket, Column, ComStmtClose,
         ComStmtExecuteRequestBuilder, ComStmtSendLongData, HandshakePacket, HandshakeResponse,
         OkPacket, OkPacketKind, SslRequest,
     },
@@ -37,6 +37,7 @@ use crate::{
         local_infile::LocalInfile,
         pool::{Pool, PooledConn},
         query_result::{Binary, Or, Text},
+        replication::BinLogEventIterator,
         stmt::{InnerStmt, Statement},
         stmt_cache::StmtCache,
         transaction::{AccessMode, TxOpts},
@@ -61,6 +62,7 @@ pub mod pool;
 pub mod query;
 pub mod query_result;
 pub mod queryable;
+pub mod replication;
 pub mod stmt;
 mod stmt_cache;
 pub mod transaction;
@@ -901,6 +903,19 @@ impl Conn {
     pub fn start_transaction(&mut self, tx_opts: TxOpts) -> Result<Transaction> {
         self._start_transaction(tx_opts)?;
         Ok(Transaction::new(self.into()))
+    }
+
+    pub fn get_binlog_stream(
+        mut self,
+        file_name: Option<&str>,
+        position: u32,
+        non_blocking: bool,
+        server_id: u32,
+    ) -> Result<BinLogEventIterator> {
+        let packet = BinlogDumpPacket::new(file_name, position, non_blocking, server_id);
+        self.write_command(Command::COM_BINLOG_DUMP, packet.as_ref())?;
+        self.drop_packet()?;
+        Ok(BinLogEventIterator::new(self))
     }
 
     fn _true_prepare(&mut self, query: &str) -> Result<InnerStmt> {
