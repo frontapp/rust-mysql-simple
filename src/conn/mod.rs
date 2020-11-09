@@ -14,7 +14,7 @@ use mysql_common::{
         column_from_payload, parse_auth_switch_request, parse_err_packet, parse_handshake_packet,
         parse_ok_packet, AuthPlugin, AuthSwitchRequest, BinlogDumpPacket, Column, ComStmtClose,
         ComStmtExecuteRequestBuilder, ComStmtSendLongData, HandshakePacket, HandshakeResponse,
-        OkPacket, OkPacketKind, SslRequest,
+        OkPacket, OkPacketKind, RegisterSlavePacket, SslRequest,
     },
     proto::{codec::Compression, sync_framed::MySyncFramed},
     value::{read_bin_values, read_text_values, ServerSide},
@@ -912,6 +912,9 @@ impl Conn {
         non_blocking: bool,
         server_id: u32,
     ) -> Result<BinlogEventIterator> {
+        let packet = RegisterSlavePacket::new(server_id);
+        self.write_command(Command::COM_REGISTER_SLAVE, packet.as_ref())?;
+        self.drop_packet()?;
         let packet = BinlogDumpPacket::new(file_name, position, non_blocking, server_id);
         self.write_command(Command::COM_BINLOG_DUMP, packet.as_ref())?;
         self.drop_packet()?;
