@@ -794,6 +794,8 @@ pub use crate::conn::query::QueryWithParams;
 #[doc(inline)]
 pub use crate::conn::query_result::{Binary, QueryResult, ResultSet, SetColumns, Text};
 #[doc(inline)]
+pub use crate::conn::replication::BinlogEventIterator;
+#[doc(inline)]
 pub use crate::conn::stmt::Statement;
 #[doc(inline)]
 pub use crate::conn::transaction::{AccessMode, IsolationLevel, Transaction, TxOpts};
