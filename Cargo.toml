@@ -36,7 +36,7 @@ serde_derive = "1"
 bufstream = "~0.1"
 io-enum = "0.2.1"
 lru = "0.6.0"
-mysql_common = { git = "https://github.com/utay/rust_mysql_common.git", rev = "d1b23d5c804e3184ac3abe5972dcc1b64f7d866a" }
+mysql_common = { git = "https://github.com/frontapp/rust_mysql_common.git", rev = "d1b23d5c804e3184ac3abe5972dcc1b64f7d866a" }
 native-tls = "0.2.3"
 socket2 = "0.3.12"
 pem = "0.8.1"
