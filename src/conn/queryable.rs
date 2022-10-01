@@ -17,7 +17,7 @@ use crate::{
     Params, QueryResult, Result, Statement,
 };
 
-/// Something, that eventualy is a `Statement` in the context of a `T: Queryable`.
+/// Something, that eventually is a `Statement` in the context of a `T: Queryable`.
 pub trait AsStatement {
     /// Make a statement out of `Self`.
     fn as_statement<Q: Queryable>(&self, queryable: &mut Q) -> Result<Cow<'_, Statement>>;
@@ -46,7 +46,7 @@ pub trait Queryable {
         self.query_map(query, from_row_opt)
     }
 
-    /// Performs text query and returns the firt row of the first result set.
+    /// Performs text query and returns the first row of the first result set.
     fn query_first<T, Q>(&mut self, query: Q) -> Result<Option<T>>
     where
         Q: AsRef<str>,
