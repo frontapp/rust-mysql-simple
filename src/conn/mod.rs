@@ -16,7 +16,7 @@ use mysql_common::{
         binlog_request::BinlogRequest, AuthPlugin, AuthSwitchRequest, Column, ComStmtClose,
         ComStmtExecuteRequestBuilder, ComStmtSendLongData, CommonOkPacket, ErrPacket,
         HandshakePacket, HandshakeResponse, OkPacket, OkPacketDeserializer, OkPacketKind,
-        OldAuthSwitchRequest, RegisterSlavePacket, ResultSetTerminator, SessionStateInfo,
+        OldAuthSwitchRequest, ResultSetTerminator, SessionStateInfo,
     },
     proto::{codec::Compression, sync_framed::MySyncFramed, MySerialize},
     row::{Row, RowDeserializer},
@@ -1003,19 +1003,27 @@ impl Conn {
         Ok(Transaction::new(self.into()))
     }
 
-    pub fn get_binlog_stream(
+    pub fn get_binlog_stream_front(
         &mut self,
         file_name: Option<&str>,
         position: u32,
         non_blocking: bool,
         server_id: u32,
     ) -> Result<BinlogEventIterator> {
-        let packet = RegisterSlavePacket::new(server_id);
-        self.write_command(Command::COM_REGISTER_SLAVE, packet.as_ref())?;
+        use mysql_common::packets::{BinlogDumpFlags, ComBinlogDump, ComRegisterSlave};
+
+        self.write_command_raw(&ComRegisterSlave::new(server_id))?;
         self.drop_packet()?;
-        let packet = BinlogDumpPacket::new(file_name, position, non_blocking, server_id);
-        self.write_command(Command::COM_BINLOG_DUMP, packet.as_ref())?;
+        let mut cmd = ComBinlogDump::new(server_id);
+        if let Some(f) = file_name {
+            cmd = cmd.with_filename(f.as_bytes()).with_pos(position);
+        }
+        if non_blocking {
+            cmd = cmd.with_flags(BinlogDumpFlags::BINLOG_DUMP_NON_BLOCK);
+        }
+        self.write_command_raw(&cmd)?;
         self.drop_packet()?;
+
         Ok(BinlogEventIterator::new(self))
     }
 

@@ -15,7 +15,8 @@ impl<'a> Iterator for BinlogEventIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.conn.read_packet() {
-            Ok(data) => Some(data),
+            // FIXME: Avoid copying here
+            Ok(mut data) => Some(data.as_mut().clone()),
             Err(err) => {
                 println!("{:?}", err);
                 None
