@@ -8,6 +8,7 @@
 
 use bytes::{Buf, BufMut};
 use mysql_common::{
+    constants::UTF8MB4_GENERAL_CI,
     crypto,
     io::{ParseBuf, ReadMysqlExt},
     misc::raw::Either,
@@ -207,7 +208,10 @@ pub struct Conn(Box<ConnInner>);
 impl Conn {
     /// Returns version number reported by the server.
     pub fn server_version(&self) -> (u16, u16, u16) {
-        self.0.server_version.unwrap()
+        self.0
+            .server_version
+            .or_else(|| self.0.mariadb_server_version)
+            .unwrap()
     }
 
     /// Returns connection identifier.
@@ -664,10 +668,16 @@ impl Conn {
     }
 
     fn do_ssl_request(&mut self) -> Result<()> {
+        let charset = if self.server_version() >= (5, 5, 3) {
+            UTF8MB4_GENERAL_CI
+        } else {
+            UTF8_GENERAL_CI
+        };
+
         let ssl_request = SslRequest::new(
             self.get_client_flags(),
             DEFAULT_MAX_ALLOWED_PACKET as u32,
-            UTF8_GENERAL_CI as u8,
+            charset as u8,
         );
         self.write_struct(&ssl_request)
     }
@@ -1027,8 +1037,8 @@ impl Conn {
         Ok(BinlogEventIterator::new(self))
     }
 
-    fn _true_prepare(&mut self, query: &str) -> Result<InnerStmt> {
-        self.write_command(Command::COM_STMT_PREPARE, query.as_bytes())?;
+    fn _true_prepare(&mut self, query: &[u8]) -> Result<InnerStmt> {
+        self.write_command(Command::COM_STMT_PREPARE, query)?;
         let pld = self.read_packet()?;
         let mut stmt = ParseBuf(&*pld).parse::<InnerStmt>(self.connection_id())?;
         if stmt.num_params() > 0 {
@@ -1052,7 +1062,7 @@ impl Conn {
         Ok(stmt)
     }
 
-    fn _prepare(&mut self, query: &str) -> Result<Arc<InnerStmt>> {
+    fn _prepare(&mut self, query: &[u8]) -> Result<Arc<InnerStmt>> {
         if let Some(entry) = self.0.stmt_cache.by_query(query) {
             return Ok(entry.stmt.clone());
         }
@@ -1124,7 +1134,7 @@ impl Conn {
         Ok(Some(row.into()))
     }
 
-    fn has_stmt(&self, query: &str) -> bool {
+    fn has_stmt(&self, query: &[u8]) -> bool {
         self.0.stmt_cache.contains_query(query)
     }
 
@@ -1188,7 +1198,7 @@ impl Queryable for Conn {
 
     fn prep<T: AsRef<str>>(&mut self, query: T) -> Result<Statement> {
         let query = query.as_ref();
-        let (named_params, real_query) = parse_named_params(query)?;
+        let (named_params, real_query) = parse_named_params(query.as_bytes())?;
         self._prepare(real_query.borrow())
             .map(|inner| Statement::new(inner, named_params))
     }
@@ -2109,9 +2119,9 @@ mod test {
                 .stmt_cache
                 .iter()
                 .map(|(_, entry)| &**entry.query.0.as_ref())
-                .collect::<Vec<&str>>();
+                .collect::<Vec<&[u8]>>();
             order.sort();
-            assert_eq!(order, &["DO 3", "DO 5", "DO 6"]);
+            assert_eq!(order, &[b"DO 3", b"DO 5", b"DO 6"]);
         }
 
         #[test]
