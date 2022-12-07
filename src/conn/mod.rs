@@ -1013,27 +1013,34 @@ impl Conn {
         Ok(Transaction::new(self.into()))
     }
 
-    pub fn get_binlog_stream_front(
+    fn request_binlog_front(
         &mut self,
-        file_name: Option<&str>,
-        position: u32,
-        non_blocking: bool,
+        filename_pos: Option<(&[u8], u32)>,
+        blocking: bool,
         server_id: u32,
-    ) -> Result<BinlogEventIterator> {
+    ) -> Result<()> {
         use mysql_common::packets::{BinlogDumpFlags, ComBinlogDump, ComRegisterSlave};
-
+        self.query_drop(r"set @master_binlog_checksum=@@global.binlog_checksum")?;
         self.write_command_raw(&ComRegisterSlave::new(server_id))?;
         self.drop_packet()?;
         let mut cmd = ComBinlogDump::new(server_id);
-        if let Some(f) = file_name {
-            cmd = cmd.with_filename(f.as_bytes()).with_pos(position);
+        if let Some((filename, pos)) = filename_pos {
+            cmd = cmd.with_filename(filename).with_pos(pos);
         }
-        if non_blocking {
+        if !blocking {
             cmd = cmd.with_flags(BinlogDumpFlags::BINLOG_DUMP_NON_BLOCK);
         }
         self.write_command_raw(&cmd)?;
-        self.drop_packet()?;
+        self.drop_packet()
+    }
 
+    pub fn get_binlog_stream_front(
+        mut self,
+        filename_pos: Option<(&[u8], u32)>,
+        blocking: bool,
+        server_id: u32,
+    ) -> Result<BinlogEventIterator> {
+        self.request_binlog_front(filename_pos, blocking, server_id)?;
         Ok(BinlogEventIterator::new(self))
     }
 
