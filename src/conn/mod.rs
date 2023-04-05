@@ -65,7 +65,8 @@ use crate::{
         UnknownAuthPlugin, UnsupportedProtocol,
     },
     Error::{self, DriverError, MySqlError},
-    LocalInfileHandler, Opts, OptsBuilder, Params, QueryResult, Result, Transaction,
+    LocalInfileHandler, Opts, OptsBuilder, Params, PipelineResult, QueryResult, Result,
+    Transaction,
     Value::{self, Bytes, NULL},
 };
 
@@ -853,11 +854,7 @@ impl Conn {
         Ok(())
     }
 
-    fn _execute(
-        &mut self,
-        stmt: &Statement,
-        params: Params,
-    ) -> Result<Or<Vec<Column>, OkPacket<'static>>> {
+    fn _execute_pipeline(&mut self, stmt: &Statement, params: Params) -> Result<()> {
         let exec_request = match &params {
             Params::Empty => {
                 if stmt.num_params() != 0 {
@@ -886,13 +883,21 @@ impl Conn {
             }
             Params::Named(_) => {
                 if let Some(named_params) = stmt.named_params.as_ref() {
-                    return self._execute(stmt, params.into_positional(named_params)?);
+                    return self._execute_pipeline(stmt, params.into_positional(named_params)?);
                 } else {
                     return Err(DriverError(NamedParamsForPositionalQuery));
                 }
             }
         };
-        self.write_command_raw(&exec_request)?;
+        self.write_command_raw(&exec_request)
+    }
+
+    fn _execute(
+        &mut self,
+        stmt: &Statement,
+        params: Params,
+    ) -> Result<Or<Vec<Column>, OkPacket<'static>>> {
+        self._execute_pipeline(stmt, params)?;
         self.handle_result_set()
     }
 
@@ -1194,6 +1199,51 @@ impl Conn {
 impl AsRawFd for Conn {
     fn as_raw_fd(&self) -> RawFd {
         self.stream_ref().get_ref().as_raw_fd()
+    }
+}
+
+pub struct Pipeline<'c> {
+    conn: Option<&'c mut Conn>,
+    queries: Vec<u8>,
+}
+
+impl<'c> Pipeline<'c> {
+    pub fn exec<S, P>(&mut self, stmt: S, params: P) -> Result<()>
+    where
+        S: AsStatement,
+        P: Into<Params>,
+    {
+        let conn = self.conn.as_mut().unwrap();
+        let statement = stmt.as_statement(*conn)?;
+        conn._execute_pipeline(&*statement, params.into())?;
+        self.queries
+            .push(conn.stream_mut().codec().front_hack_get_seq_id());
+        Ok(())
+    }
+
+    fn finish_inner(&mut self) -> PipelineResult<'c, Binary> {
+        PipelineResult::new(self.conn.take().unwrap(), self.queries.clone()) // XXX
+    }
+
+    pub fn finish(mut self) -> PipelineResult<'c, Binary> {
+        self.finish_inner()
+    }
+}
+
+impl Drop for Pipeline<'_> {
+    fn drop(&mut self) {
+        if self.conn.is_some() {
+            drop(self.finish_inner())
+        }
+    }
+}
+
+impl Conn {
+    pub fn pipeline<'c>(&'c mut self) -> Pipeline<'c> {
+        Pipeline {
+            conn: Some(self),
+            queries: vec![],
+        }
     }
 }
 
@@ -1905,6 +1955,35 @@ mod test {
                 }
             }
             assert_eq!(i, 3);
+        }
+
+        #[test]
+        fn should_pipeline_work() {
+            println!("in should_pipeline_work");
+            let mut conn = Conn::new(get_opts()).unwrap();
+            let stmt1 = conn.prep("select 1 + ?").unwrap();
+            let stmt2 = conn.prep("select 10 + ?").unwrap();
+            let stmt3 = conn.prep("select 100 + ?").unwrap();
+            let mut pipe = conn.pipeline();
+            pipe.exec(stmt1, (1,)).unwrap();
+            pipe.exec(stmt2, (2,)).unwrap();
+            pipe.exec(stmt3, (3,)).unwrap();
+            println!("exec'd statements");
+            let mut i = 0;
+            let mut results = pipe.finish();
+            println!("pipe finished");
+            while let Some(result) = results.next_query().unwrap() {
+                println!("got query result");
+                i += 1;
+                for row in result {
+                    match i {
+                        1 => assert_eq!(row.unwrap().unwrap(), vec![Int(2)]),
+                        2 => assert_eq!(row.unwrap().unwrap(), vec![Int(12)]),
+                        3 => assert_eq!(row.unwrap().unwrap(), vec![Int(103)]),
+                        _ => unreachable!(),
+                    }
+                }
+            }
         }
 
         #[test]

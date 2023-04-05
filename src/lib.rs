@@ -902,7 +902,9 @@ pub use crate::conn::pool::{Pool, PooledConn};
 #[doc(inline)]
 pub use crate::conn::query::QueryWithParams;
 #[doc(inline)]
-pub use crate::conn::query_result::{Binary, QueryResult, ResultSet, SetColumns, Text};
+pub use crate::conn::query_result::{
+    Binary, PipelineResult, QueryResult, ResultSet, SetColumns, Text,
+};
 #[doc(inline)]
 pub use crate::conn::replication::BinlogEventIterator;
 #[doc(inline)]
