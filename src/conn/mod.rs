@@ -2055,7 +2055,7 @@ mod test {
             let opts = OptsBuilder::from_opts(get_opts())
                 .prefer_socket(false)
                 .tcp_connect_timeout(Some(::std::time::Duration::from_millis(1000)))
-                .ip_or_hostname(Some("192.168.255.255"));
+                .ip_or_hostname(Some("192.0.2.1")); // Reserved for documentation per RFC 5737
             match Conn::new(opts).unwrap_err() {
                 DriverError(ConnectTimeout) => {}
                 err => panic!("Unexpected error: {}", err),
