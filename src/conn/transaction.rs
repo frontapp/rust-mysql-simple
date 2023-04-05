@@ -16,7 +16,7 @@ use crate::{
         ConnMut,
     },
     prelude::*,
-    LocalInfileHandler, Params, QueryResult, Result, Statement,
+    LocalInfileHandler, Params, Pipeline, QueryResult, Result, Statement,
 };
 
 /// MySql transaction options.
@@ -188,6 +188,10 @@ impl<'a> Queryable for Transaction<'a> {
         P: Into<Params>,
     {
         self.conn.exec_iter(stmt, params)
+    }
+
+    fn pipeline(&mut self) -> Pipeline<'_> {
+        self.conn.pipeline()
     }
 }
 

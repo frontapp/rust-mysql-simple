@@ -20,8 +20,8 @@ use std::{
 use crate::{
     conn::query_result::{Binary, Text},
     prelude::*,
-    Conn, DriverError, Error, LocalInfileHandler, Opts, Params, QueryResult, Result, Statement,
-    Transaction, TxOpts,
+    Conn, DriverError, Error, LocalInfileHandler, Opts, Params, Pipeline, QueryResult, Result,
+    Statement, Transaction, TxOpts,
 };
 
 #[derive(Debug)]
@@ -393,6 +393,10 @@ impl Queryable for PooledConn {
         P: Into<Params>,
     {
         self.conn.as_mut().unwrap().exec_iter(stmt, params)
+    }
+
+    fn pipeline(&mut self) -> Pipeline<'_> {
+        self.conn.as_mut().unwrap().pipeline()
     }
 }
 

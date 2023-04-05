@@ -65,8 +65,7 @@ use crate::{
         UnknownAuthPlugin, UnsupportedProtocol,
     },
     Error::{self, DriverError, MySqlError},
-    LocalInfileHandler, Opts, OptsBuilder, Params, PipelineResult, QueryResult, Result,
-    Transaction,
+    LocalInfileHandler, Opts, OptsBuilder, Params, Pipeline, QueryResult, Result, Transaction,
     Value::{self, Bytes, NULL},
 };
 
@@ -78,6 +77,7 @@ use self::binlog_stream::BinlogStream;
 pub mod binlog_stream;
 pub mod local_infile;
 pub mod opts;
+pub mod pipeline;
 pub mod pool;
 pub mod query;
 pub mod query_result;
@@ -1202,51 +1202,6 @@ impl AsRawFd for Conn {
     }
 }
 
-pub struct Pipeline<'c> {
-    conn: Option<&'c mut Conn>,
-    queries: Vec<u8>,
-}
-
-impl<'c> Pipeline<'c> {
-    pub fn exec<S, P>(&mut self, stmt: S, params: P) -> Result<()>
-    where
-        S: AsStatement,
-        P: Into<Params>,
-    {
-        let conn = self.conn.as_mut().unwrap();
-        let statement = stmt.as_statement(*conn)?;
-        conn._execute_pipeline(&*statement, params.into())?;
-        self.queries
-            .push(conn.stream_mut().codec().front_hack_get_seq_id());
-        Ok(())
-    }
-
-    fn finish_inner(&mut self) -> PipelineResult<'c, Binary> {
-        PipelineResult::new(self.conn.take().unwrap(), self.queries.clone()) // XXX
-    }
-
-    pub fn finish(mut self) -> PipelineResult<'c, Binary> {
-        self.finish_inner()
-    }
-}
-
-impl Drop for Pipeline<'_> {
-    fn drop(&mut self) {
-        if self.conn.is_some() {
-            drop(self.finish_inner())
-        }
-    }
-}
-
-impl Conn {
-    pub fn pipeline<'c>(&'c mut self) -> Pipeline<'c> {
-        Pipeline {
-            conn: Some(self),
-            queries: vec![],
-        }
-    }
-}
-
 impl Queryable for Conn {
     fn query_iter<T: AsRef<str>>(&mut self, query: T) -> Result<QueryResult<'_, '_, '_, Text>> {
         let meta = self._query(query.as_ref())?;
@@ -1274,6 +1229,10 @@ impl Queryable for Conn {
         let statement = stmt.as_statement(self)?;
         let meta = self._execute(&*statement, params.into())?;
         Ok(QueryResult::new(ConnMut::Mut(self), meta))
+    }
+
+    fn pipeline(&mut self) -> Pipeline<'_> {
+        Pipeline::new(self)
     }
 }
 
@@ -1965,9 +1924,9 @@ mod test {
             let stmt2 = conn.prep("select 10 + ?").unwrap();
             let stmt3 = conn.prep("select 100 + ?").unwrap();
             let mut pipe = conn.pipeline();
-            pipe.exec(stmt1, (1,)).unwrap();
-            pipe.exec(stmt2, (2,)).unwrap();
-            pipe.exec(stmt3, (3,)).unwrap();
+            pipe.exec(&stmt1, (1,)).unwrap();
+            pipe.exec(&stmt2, (2,)).unwrap();
+            pipe.exec(&stmt3, (3,)).unwrap();
             println!("exec'd statements");
             let mut i = 0;
             let mut results = pipe.finish();
