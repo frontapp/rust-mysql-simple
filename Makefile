@@ -29,17 +29,20 @@ if ((mysql --version | grep -P '5\.(6|7)' >>/dev/null) || (mysql --version | gre
 then \
 	mysql_install_db --no-defaults \
                      --basedir=$(BASEDIR) \
-                     --datadir=$(MYSQL_DATA_DIR)/data; \
+                     --datadir=$(MYSQL_DATA_DIR)/data \
+                     --log-error=$(MYSQL_DATA_DIR)/mysqld.log; \
 else \
     mysqld --initialize-insecure \
            --basedir=$(BASEDIR) \
-           --datadir=$(MYSQL_DATA_DIR)/data; \
+           --datadir=$(MYSQL_DATA_DIR)/data \
+           --log-error=$(MYSQL_DATA_DIR)/mysqld.log; \
 fi
 
 mysqld --no-defaults \
        --basedir=$(BASEDIR) \
        --bind-address=127.0.0.1 \
        --datadir=$(MYSQL_DATA_DIR)/data \
+       --log-error=$(MYSQL_DATA_DIR)/mysqld.log \
        --max-allowed-packet=32M \
        --pid-file=$(MYSQL_DATA_DIR)/mysqld.pid \
        --port=$(MYSQL_PORT) \

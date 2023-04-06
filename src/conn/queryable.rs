@@ -14,7 +14,7 @@ use crate::{
     conn::query_result::{Binary, Text},
     from_row, from_row_opt,
     prelude::FromRow,
-    Params, QueryResult, Result, Statement,
+    Params, Pipeline, QueryResult, Result, Statement,
 };
 
 /// Something, that eventually is a `Statement` in the context of a `T: Queryable`.
@@ -141,6 +141,9 @@ pub trait Queryable {
     where
         S: AsStatement,
         P: Into<Params>;
+
+    /// Starts a pipeline to execute multiple statements in one round-trip.
+    fn pipeline(&mut self) -> Pipeline<'_>;
 
     /// Prepares the given statement, and executes it with each item in the given params iterator.
     fn exec_batch<S, P, I>(&mut self, stmt: S, params: I) -> Result<()>

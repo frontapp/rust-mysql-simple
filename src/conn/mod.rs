@@ -65,7 +65,7 @@ use crate::{
         UnknownAuthPlugin, UnsupportedProtocol,
     },
     Error::{self, DriverError, MySqlError},
-    LocalInfileHandler, Opts, OptsBuilder, Params, QueryResult, Result, Transaction,
+    LocalInfileHandler, Opts, OptsBuilder, Params, Pipeline, QueryResult, Result, Transaction,
     Value::{self, Bytes, NULL},
 };
 
@@ -77,6 +77,7 @@ use self::binlog_stream::BinlogStream;
 pub mod binlog_stream;
 pub mod local_infile;
 pub mod opts;
+pub mod pipeline;
 pub mod pool;
 pub mod query;
 pub mod query_result;
@@ -851,11 +852,7 @@ impl Conn {
         Ok(())
     }
 
-    fn _execute(
-        &mut self,
-        stmt: &Statement,
-        params: Params,
-    ) -> Result<Or<Vec<Column>, OkPacket<'static>>> {
+    fn _execute_pipeline(&mut self, stmt: &Statement, params: Params) -> Result<()> {
         let exec_request = match &params {
             Params::Empty => {
                 if stmt.num_params() != 0 {
@@ -884,13 +881,21 @@ impl Conn {
             }
             Params::Named(_) => {
                 if let Some(named_params) = stmt.named_params.as_ref() {
-                    return self._execute(stmt, params.into_positional(named_params)?);
+                    return self._execute_pipeline(stmt, params.into_positional(named_params)?);
                 } else {
                     return Err(DriverError(NamedParamsForPositionalQuery));
                 }
             }
         };
-        self.write_command_raw(&exec_request)?;
+        self.write_command_raw(&exec_request)
+    }
+
+    fn _execute(
+        &mut self,
+        stmt: &Statement,
+        params: Params,
+    ) -> Result<Or<Vec<Column>, OkPacket<'static>>> {
+        self._execute_pipeline(stmt, params)?;
         self.handle_result_set()
     }
 
@@ -1218,6 +1223,10 @@ impl Queryable for Conn {
         let statement = stmt.as_statement(self)?;
         let meta = self._execute(&*statement, params.into())?;
         Ok(QueryResult::new(ConnMut::Mut(self), meta))
+    }
+
+    fn pipeline(&mut self) -> Pipeline<'_> {
+        Pipeline::new(self)
     }
 }
 
@@ -1902,6 +1911,47 @@ mod test {
         }
 
         #[test]
+        fn should_pipeline_work() {
+            let mut conn = Conn::new(get_opts()).unwrap();
+            let stmt1 = conn.prep("select 1 + ?").unwrap();
+            let stmt2 = conn.prep("select 10 + ?").unwrap();
+            let stmt3 = conn.prep("select 100 + ?").unwrap();
+            let mut pipe = conn.pipeline();
+            pipe.exec(&stmt1, (1,)).unwrap();
+            pipe.exec(&stmt2, (2,)).unwrap();
+            pipe.exec(&stmt3, (3,)).unwrap();
+            let mut i = 0;
+            let mut results = pipe.finish();
+            while let Some(result) = results.iter().unwrap() {
+                i += 1;
+                for row in result {
+                    match i {
+                        1 => assert_eq!(row.unwrap().unwrap(), vec![Int(2)]),
+                        2 => assert_eq!(row.unwrap().unwrap(), vec![Int(12)]),
+                        3 => assert_eq!(row.unwrap().unwrap(), vec![Int(103)]),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn should_pipeline_break_during_results_work() {
+            let mut conn = Conn::new(get_opts()).unwrap();
+            let stmt = conn.prep("select ?").unwrap();
+            let mut pipe = conn.pipeline();
+            pipe.exec(&stmt, (1,)).unwrap();
+            pipe.exec(&stmt, (2,)).unwrap();
+            let mut results = pipe.finish();
+            let first_result = results.iter().unwrap().unwrap();
+            for row in first_result {
+                assert_eq!(row.unwrap().unwrap(), vec![Int(1)]);
+            }
+            drop(results);
+            assert_eq!(conn.exec_first(&stmt, (3,)).unwrap(), Some((3,)));
+        }
+
+        #[test]
         fn issue_273() {
             let opts = OptsBuilder::from_opts(get_opts()).prefer_socket(false);
             let mut conn = Conn::new(opts).unwrap();
@@ -2011,7 +2061,7 @@ mod test {
             let opts = OptsBuilder::from_opts(get_opts())
                 .prefer_socket(false)
                 .tcp_connect_timeout(Some(::std::time::Duration::from_millis(1000)))
-                .ip_or_hostname(Some("192.168.255.255"));
+                .ip_or_hostname(Some("192.0.2.1")); // Reserved for documentation per RFC 5737
             match Conn::new(opts).unwrap_err() {
                 DriverError(ConnectTimeout) => {}
                 err => panic!("Unexpected error: {}", err),

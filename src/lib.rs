@@ -898,6 +898,8 @@ pub use crate::conn::opts::SslOpts;
 #[doc(inline)]
 pub use crate::conn::opts::{Opts, OptsBuilder, DEFAULT_STMT_CACHE_SIZE};
 #[doc(inline)]
+pub use crate::conn::pipeline::{Pipeline, PipelineResult};
+#[doc(inline)]
 pub use crate::conn::pool::{Pool, PooledConn};
 #[doc(inline)]
 pub use crate::conn::query::QueryWithParams;
