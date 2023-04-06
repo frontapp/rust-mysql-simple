@@ -1936,6 +1936,22 @@ mod test {
         }
 
         #[test]
+        fn should_pipeline_break_during_results_work() {
+            let mut conn = Conn::new(get_opts()).unwrap();
+            let stmt = conn.prep("select ?").unwrap();
+            let mut pipe = conn.pipeline();
+            pipe.exec(&stmt, (1,)).unwrap();
+            pipe.exec(&stmt, (2,)).unwrap();
+            let mut results = pipe.finish();
+            let first_result = results.iter().unwrap().unwrap();
+            for row in first_result {
+                assert_eq!(row.unwrap().unwrap(), vec![Int(1)]);
+            }
+            drop(results);
+            assert_eq!(conn.exec_first(&stmt, (3,)).unwrap(), Some((3,)));
+        }
+
+        #[test]
         fn issue_273() {
             let opts = OptsBuilder::from_opts(get_opts()).prefer_socket(false);
             let mut conn = Conn::new(opts).unwrap();
