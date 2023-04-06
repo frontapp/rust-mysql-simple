@@ -1918,7 +1918,6 @@ mod test {
 
         #[test]
         fn should_pipeline_work() {
-            println!("in should_pipeline_work");
             let mut conn = Conn::new(get_opts()).unwrap();
             let stmt1 = conn.prep("select 1 + ?").unwrap();
             let stmt2 = conn.prep("select 10 + ?").unwrap();
@@ -1927,12 +1926,9 @@ mod test {
             pipe.exec(&stmt1, (1,)).unwrap();
             pipe.exec(&stmt2, (2,)).unwrap();
             pipe.exec(&stmt3, (3,)).unwrap();
-            println!("exec'd statements");
             let mut i = 0;
             let mut results = pipe.finish();
-            println!("pipe finished");
-            while let Some(result) = results.next_query().unwrap() {
-                println!("got query result");
+            while let Some(result) = results.iter().unwrap() {
                 i += 1;
                 for row in result {
                     match i {
