@@ -50,7 +50,7 @@ use crate::{
         local_infile::LocalInfile,
         pool::{Pool, PooledConn},
         query_result::{Binary, Or, Text},
-        replication::BinlogEventIterator,
+        replication::{BinlogEventIterator, BinlogOptions},
         stmt::{InnerStmt, Statement},
         stmt_cache::StmtCache,
         transaction::{AccessMode, TxOpts},
@@ -1016,21 +1016,27 @@ impl Conn {
         Ok(Transaction::new(self.into()))
     }
 
-    fn request_binlog_front(
-        &mut self,
-        filename_pos: Option<(&[u8], u32)>,
-        blocking: bool,
-        server_id: u32,
-    ) -> Result<()> {
+    fn request_binlog_front(&mut self, options: &BinlogOptions) -> Result<()> {
         use mysql_common::packets::{BinlogDumpFlags, ComBinlogDump, ComRegisterSlave};
         self.query_drop(r"set @master_binlog_checksum=@@global.binlog_checksum")?;
-        self.write_command_raw(&ComRegisterSlave::new(server_id))?;
-        self.drop_packet()?;
-        let mut cmd = ComBinlogDump::new(server_id);
-        if let Some((filename, pos)) = filename_pos {
-            cmd = cmd.with_filename(filename).with_pos(pos);
+        if self.0.mariadb_server_version.is_some() {
+            self.query_drop("set @mariadb_slave_capability=4")?;
         }
-        if !blocking {
+        if let Some(start_gtid) = &options.start_gtid {
+            self.exec_drop("set @slave_connect_state=?", (start_gtid,))?;
+        }
+        if let Some(until_gtid) = &options.until_gtid {
+            self.exec_drop("set @slave_until_gtid=?", (until_gtid,))?;
+        }
+        if options.gtid_strict_mode {
+            self.query_drop("set @slave_gtid_strict_mode=1")?;
+        }
+        self.write_command_raw(&ComRegisterSlave::new(options.server_id))?;
+        self.drop_packet()?;
+        let mut cmd = ComBinlogDump::new(options.server_id)
+            .with_filename(&options.filename)
+            .with_pos(options.position);
+        if !options.blocking {
             cmd = cmd.with_flags(BinlogDumpFlags::BINLOG_DUMP_NON_BLOCK);
         }
         self.write_command_raw(&cmd)?;
@@ -1039,12 +1045,10 @@ impl Conn {
 
     pub fn get_binlog_stream_front(
         mut self,
-        filename_pos: Option<(&[u8], u32)>,
-        blocking: bool,
-        server_id: u32,
+        options: BinlogOptions,
     ) -> Result<BinlogEventIterator> {
-        self.request_binlog_front(filename_pos, blocking, server_id)?;
-        Ok(BinlogEventIterator::new(self))
+        self.request_binlog_front(&options)?;
+        Ok(BinlogEventIterator::new(self, options))
     }
 
     fn _true_prepare(&mut self, query: &[u8]) -> Result<InnerStmt> {
