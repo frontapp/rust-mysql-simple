@@ -1039,8 +1039,7 @@ impl Conn {
         if !options.blocking {
             cmd = cmd.with_flags(BinlogDumpFlags::BINLOG_DUMP_NON_BLOCK);
         }
-        self.write_command_raw(&cmd)?;
-        self.drop_packet()
+        self.write_command_raw(&cmd)
     }
 
     pub fn get_binlog_stream_front(
